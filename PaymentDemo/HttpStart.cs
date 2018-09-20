@@ -15,14 +15,14 @@ namespace PaymentDemo
     {
         [FunctionName("HttpStart")]
         public static async Task<HttpResponseMessage> Run(
-            [HttpTrigger(AuthorizationLevel.Function, methods: "post", Route = "orchestrators/{functionName}")] HttpRequestMessage req,
+            [HttpTrigger(AuthorizationLevel.Function, methods: new string[] { "post", "options" }, Route = "orchestrators/{functionName}")] HttpRequestMessage req,
             [OrchestrationClient] DurableOrchestrationClientBase starter,
             string functionName,
             TraceWriter log)
         {
             // Function input comes from the request content.
-            dynamic eventData = await req.Content.ReadAsAsync<object>();
-            string instanceId = await starter.StartNewAsync(functionName, eventData);
+            FormData formData = await req.Content.ReadAsAsync<FormData>();
+            string instanceId = await starter.StartNewAsync(functionName, formData);
 
             log.Info($"Started orchestration with ID = '{instanceId}'.");
 

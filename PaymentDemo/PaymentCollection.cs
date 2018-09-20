@@ -7,23 +7,30 @@ using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Host;
 using Twilio;
+using Twilio.Rest.Api.V2010.Account;
+using Twilio.Types;
 
-namespace VSSample
+namespace PaymentDemo
 {
 
     public static class PaymentCollection
     {
-        private static int SmsInterval = Int32.Parse(Environment.GetEnvironmentVariable("SmsInterval"));
 
         [FunctionName("SmsPaymentCollection")]
-        public static async Task<String> Run(
+        public static async Task<String> SmsPaymentCollection(
             [OrchestrationTrigger] DurableOrchestrationContext context)
         {
-            string phoneNumber = context.GetInput<string>();
+            // Pull values sent from UI
+            FormData formData = context.GetInput<FormData>();
+
+            // Pull the instanceId and set the payment url
+            string instanceId = context.InstanceId;
+            string paymentUrl = "https://repoman-ui.azurewebsites.net/submitPayment" + $"/{instanceId}";
+
             // Validate phone number
-            if (string.IsNullOrEmpty(phoneNumber))
+            if (string.IsNullOrEmpty(formData.phoneNumber))
             {
-                throw new ArgumentNullException(nameof(phoneNumber),
+                throw new ArgumentNullException(nameof(formData.phoneNumber),
                         "A phone number input is required.");
             }
 
@@ -31,30 +38,30 @@ namespace VSSample
             {
                 // The customer has some time to respond with the code they received in the SMS message.
                 bool thankyou = false;
-                DateTime expiration = context.CurrentUtcDateTime.AddSeconds(SmsInterval);
+                DateTime expiration = context.CurrentUtcDateTime.AddSeconds(Int32.Parse(formData.notificationInterval));
                 Task timeoutTask = context.CreateTimer(expiration, timeoutCts.Token);
-                string SmsBody = "Hello, you have a bill due. Please pay your bill to stop receiving these messages. Clik here <ADD LINK> when you're done paying";
-                string smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(phoneNumber, SmsBody));
+                string SmsBody = $"Hello, you have a bill due totaling {formData.amountOwed}. Please pay your bill to stop receiving these messages. Click here when you're done paying - {paymentUrl}";
+                string smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(formData.phoneNumber, SmsBody));
                 Task<String> paymentResponseTask = context.WaitForExternalEvent<String>("PaymentResponse");
                 Task winner = await Task.WhenAny(paymentResponseTask, timeoutTask);
 
                 // check if payment was received or timeout expired #1 
                 if (winner == timeoutTask)
                 {
-                    expiration = context.CurrentUtcDateTime.AddSeconds(SmsInterval);
+                    expiration = context.CurrentUtcDateTime.AddSeconds(Int32.Parse(formData.notificationInterval));
                     timeoutTask = context.CreateTimer(expiration, timeoutCts.Token);
-                    SmsBody = "Hi again, you still haven't paid your bill. Please send in your payment to stop receiving messages";
-                    smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(phoneNumber, SmsBody));
+                    SmsBody = $"Hi again, you still haven't paid your bill totaling {formData.amountOwed}. Please send in your payment to stop receiving messages - {paymentUrl}";
+                    smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(formData.phoneNumber, SmsBody));
                     paymentResponseTask = context.WaitForExternalEvent<String>("PaymentResponse");
                     winner = await Task.WhenAny(paymentResponseTask, timeoutTask);
 
                     // check if payment was received or timeout expired #3
                     if (winner == timeoutTask)
                     {
-                        expiration = context.CurrentUtcDateTime.AddSeconds(SmsInterval);
+                        expiration = context.CurrentUtcDateTime.AddSeconds(Int32.Parse(formData.notificationInterval));
                         timeoutTask = context.CreateTimer(expiration, timeoutCts.Token);
-                        SmsBody = "Hi one more time, this is your FINAL reminder. Please send in your payment to stop receiving messages";
-                        smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(phoneNumber, SmsBody));
+                        SmsBody = $"Hi one more time, this is your FINAL reminder for your bill totaling {formData.amountOwed}. Please send in your payment to stop receiving messages - {paymentUrl}";
+                        smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(formData.phoneNumber, SmsBody));
                         paymentResponseTask = context.WaitForExternalEvent<String>("PaymentResponse");
                         winner = await Task.WhenAny(paymentResponseTask, timeoutTask);
                     }
@@ -71,7 +78,7 @@ namespace VSSample
                 if (thankyou)
                 {
                     SmsBody = "Thank you for your payment!";
-                    smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(phoneNumber, SmsBody));
+                    smsReminder = await context.CallActivityAsync<String>("SendSmsReminder", new SmsDetails(formData.phoneNumber, SmsBody));
                 }
 
                 string resultStr = "Payment pending";
@@ -85,35 +92,18 @@ namespace VSSample
             }
         }
 
-
         [FunctionName("SendSmsReminder")]
-        public static String SendSmsReminder(
+        [return: TwilioSms(AccountSidSetting = "TwilioAccountSid", AuthTokenSetting = "TwilioAuthToken", From = "%TwilioPhoneNumber%")]
+        public static CreateMessageOptions SendSmsReminder(
             [ActivityTrigger] SmsDetails inputs,
-            TraceWriter log,
-            [TwilioSms(AccountSidSetting = "TwilioAccountSid",
-                       AuthTokenSetting = "TwilioAuthToken",
-                       From = "%TwilioPhoneNumber%")] out SMSMessage message)
+            TraceWriter log)
         {
-            // Get a random number generator with a random seed (not time-based)
-            log.Info($"Sending reminder message to {inputs.PhoneNr}.");
+            CreateMessageOptions message = new CreateMessageOptions(new PhoneNumber(inputs.PhoneNr))
+            {
+                Body = inputs.TxtBody
+            };
 
-            message = new SMSMessage { To = inputs.PhoneNr };
-            message.Body = inputs.TxtBody;
-
-            return message.Body;
+            return message;
         }
     }
-    public class SmsDetails
-    {
-        public string PhoneNr { get; set; }
-        public string TxtBody { get; set; }
-
-        public SmsDetails(string phoneNr, string txtBody)
-        {
-            PhoneNr = phoneNr;
-            TxtBody = txtBody;
-        }
-    }
-
-
 }
