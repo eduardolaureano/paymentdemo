@@ -25,7 +25,7 @@ namespace PaymentDemo
 
             // Pull the instanceId and set the payment url
             string instanceId = context.InstanceId;
-            string paymentUrl = "https://repoman-ui.azurewebsites.net/submitPayment" + $"/{instanceId}";
+            string paymentUrl = Environment.GetEnvironmentVariable("SubmitPaymentUrl") + $"/{instanceId}";
 
             // Validate phone number
             if (string.IsNullOrEmpty(formData.phoneNumber))
