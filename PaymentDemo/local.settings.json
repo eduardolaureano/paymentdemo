@@ -6,6 +6,7 @@
     "TwilioAccountSid": "<ENTER TWILIO SID>",
     "TwilioAuthToken": "<ENTER TWILIO AUTH TOKEN>",
     "TwilioPhoneNumber": "<ENTER PHONE NUMBER>",
-    "SmsInterval": "30"
+    "SmsInterval": "30",
+    "SubmitPaymentUrl": "https://repoman-ui.azurewebsites.net/submitPayment"
   }
 }
